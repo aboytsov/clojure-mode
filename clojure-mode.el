@@ -627,6 +627,57 @@ point) to check."
 (put 'definline 'clojure-doc-string-elt 2)
 (put 'defprotocol 'clojure-doc-string-elt 2)
 
+;; <CHANGE>
+(defun calc-display-offset (beg end)
+  "Returns the difference between the length of the displayed text
+   (using display text property) and the length of the original text."
+  (let ((str (buffer-substring beg end)))
+    (let ((str-length (string-width str))
+          (display-length 0)
+          (changes '(0)))
+      ;; collect all change positions of display properties
+      (while (first changes)
+        (setq changes (cons (next-single-property-change
+                             (first changes) 'display str)
+                            changes)))
+      (setq changes (reverse changes))        ;; ends with nil
+      (while (first changes)
+        (let ((pos (pop changes)))
+          (let ((display-txt (get-text-property pos 'display str)))
+            ;; increase length by either the length of text
+            ;; or length of the display property
+            (setq display-length
+                  (+ display-length
+                     (if display-txt
+                         (string-width display-txt)
+                       (- (if (first changes) (first changes) str-length)
+                          pos)))))))
+      (- display-length str-length))))
+
+(defun what-line (pos)
+  "Returns the line # of the given position."
+  (save-excursion
+    (goto-char pos)
+    (beginning-of-line)
+    (count-lines 1 (point))))
+
+(defun column-of (pos)
+  (save-excursion
+    (goto-char pos)
+    (current-column)))
+
+(defun line-beg (pos)
+  (save-excursion
+    (goto-char pos)
+    (beginning-of-line)
+    (point)))
+
+(defun line-end (pos)
+  (save-excursion
+    (goto-char pos)
+    (end-of-line)
+    (point)))
+;; </CHANGE>
 
 (defun clojure-indent-line ()
   "Indent current line as Clojure code."
@@ -684,29 +735,85 @@ This function also returns nil meaning don't specify the indentation."
              (method nil)
              (function-tail (first
                              (last
-                              (split-string (substring-no-properties function) "/")))))
+                              (split-string (substring-no-properties function)
+                                            "/")))))
         (setq method (get (intern-soft function-tail) 'clojure-indent-function))
-        (cond ((member (char-after open-paren) '(?\[ ?\{))
-               (goto-char open-paren)
-               (1+ (current-column)))
-              ((or (eq method 'defun)
-                   (and clojure-defun-style-default-indent
-                        ;; largely to preserve useful alignment of :require, etc in ns
-                        (not (string-match "^:" function))
-                        (not method))
-                   (and (null method)
-                        (> (length function) 3)
-                        (string-match "\\`\\(?:\\S +/\\)?\\(def\\|with-\\)"
-                                      function)))
-               (lisp-indent-defform state indent-point))
-              ((integerp method)
-               (lisp-indent-specform method state
-                                     indent-point normal-indent))
-              (method
-               (funcall method indent-point state))
-              (clojure-use-backtracking-indent
-               (clojure-backtracking-indent
-                indent-point state normal-indent)))))))
+        ;; <CHANGE>
+        ;; if we're inside a vector or map definition, adjust based
+        ;; on the display properties of the line where the definition begins,
+        (if (member (char-after open-paren) '(?\[ ?\{))
+            (progn
+              (goto-char open-paren)
+              (+ (current-column) 1 (calc-display-offset
+                                     (line-beginning-position)
+                                     (line-end-position))))
+          (let ((new-indent
+                 (cond ((or (eq method 'defun)
+                            (and clojure-defun-style-default-indent
+                                 ;; largely to preserve useful alignment
+                                 ;; of :require, etc in ns
+                                 (not (string-match "^:" function))
+                                 (not method))
+                            (and (null method)
+                                 (> (length function) 3)
+                                 (string-match
+                                  "\\`\\(?:\\S +/\\)?\\(def\\|with-\\)"
+                                  function)))
+                        (lisp-indent-defform state indent-point))
+                       ((integerp method)
+                        (lisp-indent-specform method state
+                                              indent-point normal-indent))
+                       (method
+                        (funcall method indent-point state))
+                       ;; <CHANGE>
+                       ;; by default use 0 which yields the behavior that we
+                       ;; want: arguments are continued at the same column, and
+                       ;; if the very first argument is on a next line it's
+                       ;; indented with 2 spaces
+                       (t
+                        (lisp-indent-specform 0 state
+                                              indent-point normal-indent))
+                       ;; </CHANGE>
+                       ;;%CHANGE% (clojure-use-backtracking-indent
+                       ;;%CHANGE%  (clojure-backtracking-indent
+                       ;;%CHANGE%   indent-point state normal-indent))
+                       )))
+            ;; <CHANGE>
+            ;; if the beginning of the list and the last parsed sexpr
+            ;; are on the same line, it may need display adjustment
+            ;; HACKY: we also look at the column where the function call
+            ;; starts, and if it is exactly 2 positions lower than the
+            ;; resulted index, we assume that we're in 'body' mode and
+            ;; don't try to adjust
+            (if new-indent
+                (let ((new-indent-is-list (listp new-indent)))
+                  (let ((e-indent (if new-indent-is-list
+                                      (first new-indent)
+                                    new-indent))
+                        (form-beg (nth 1 state))
+                        (last-parsed (nth 2 state)))
+                    (let ((result
+                           (if (= (- e-indent 2) (column-of form-beg))
+                               ;; we're at +2 from the beginning of the form
+                               ;; only calc the offset for everything that
+                               ;; is on the same line but before the form itself
+                               (+ e-indent
+                                  (calc-display-offset
+                                   (line-beg form-beg) form-beg))
+                             (if (= (what-line form-beg)
+                                    (what-line last-parsed))
+                                 (+ e-indent
+                                    (calc-display-offset
+                                     (line-beg form-beg)
+                                     (line-end form-beg)))
+                               e-indent))))
+                      (if new-indent-is-list
+                          (cons result (rest new-indent))
+                        result)))))
+            ;; </CHANGE>
+            ))
+          ;; </CHANGE>
+        ))))
 
 (defun clojure-backtracking-indent (indent-point state normal-indent)
   "Experimental backtracking support.
