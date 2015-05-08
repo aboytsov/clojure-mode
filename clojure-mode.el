@@ -744,6 +744,7 @@ This function also returns nil meaning don't specify the indentation."
         (if (member (char-after open-paren) '(?\[ ?\{))
             (progn
               (goto-char open-paren)
+              ;; from the beginning of the line until opening of the list/map
               (+ (current-column) 1 (calc-display-offset
                                      (line-beg form-beg)
                                      form-beg)))
@@ -784,23 +785,26 @@ This function also returns nil meaning don't specify the indentation."
                   (let ((e-indent (if new-indent-is-list
                                       (first new-indent)
                                     new-indent)))
+                    (message "%s" state)
                     (let ((result
                            (+ e-indent
                               (cond
                                ;; HACKY
                                ;; if we're at +2 from the beginning of the form
                                ;; only calc the offset for everything that
-                               ;; is on the same line but before the form itself
+                               ;; is on the same line but before the function
+                               ;; name itself
                                ((= (- e-indent 2) (column-of form-beg))
                                 (calc-display-offset (line-beg form-beg)
                                                      form-beg))
                                ;; if we're the first expression on a new line
-                               ;; and we're not in defun mode (see +2 above),
-                               ;; we need to take the whole line into account
                                ((= (what-line form-beg)
                                    (what-line last-parsed))
+                                ;; from the beginning of the line
+                                ;; until the first argument of the function
+                                ;; being parsed
                                 (calc-display-offset (line-beg form-beg)
-                                                     (line-end form-beg)))
+                                                     last-parsed))
                                (t 0)))))
                       (if new-indent-is-list
                           (cons result (rest new-indent))
