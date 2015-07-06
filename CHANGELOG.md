@@ -2,9 +2,20 @@
 
 ## master (unreleased)
 
+### New features
+
+* [#302](https://github.com/clojure-emacs/clojure-mode/pull/302): Add new sexp navigation commands. `clojure-forward-logical-sexp` and `clojure-backward-logical-sexp` consider `^hints` and `#reader.macros` to be part of the sexp that follows them.
+* [#303](https://github.com/clojure-emacs/clojure-mode/issues/303): Handle `boot` projects in `clojure-expected-ns`.
+
+## 4.1.0 (20/06/2015)
+
 ### Changes
 
-* Add .cljc to auto-mode-alist.
+* Add `.cljc` to `auto-mode-alist`.
+* [#281](https://github.com/clojure-emacs/clojure-mode/pull/281): Add support for namespace-prefixed definition forms.
+* Remove `clojure-mark-string`.
+* [#283](https://github.com/clojure-emacs/clojure-mode/pull/283): You can now specify different indentation settings for ns-prefixed symbols.
+* [#285](https://github.com/clojure-emacs/clojure-mode/issues/285): Require Emacs 24.3+.
 
 ### Bugs fixed
 
@@ -12,6 +23,7 @@
 the buffer at end of line.
 * [#274](https://github.com/clojure-emacs/clojure-mode/issues/274): Correct font-locking of certain punctuation character literals.
 * Fix font-locking of namespace-prefixed dynamic vars (e.g. `some.ns/*var*`).
+* [#284](https://github.com/clojure-emacs/clojure-mode/issues/284): Fix the indentation of the `are` macro.
 
 ## 4.0.1 (19/12/2014)
 
