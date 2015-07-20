@@ -626,31 +626,33 @@ point) to check."
 (put 'defprotocol 'clojure-doc-string-elt 2)
 
 ;; <CHANGE>
-(defun calc-display-offset (beg end)
+(defun calc-display-offset-str (str)
   "Returns the difference between the length of the displayed text
    (using display text property) and the length of the original text."
-  (let ((str (buffer-substring beg end)))
-    (let ((str-length (string-width str))
-          (display-length 0)
-          (changes '(0)))
-      ;; collect all change positions of display properties
-      (while (first changes)
-        (setq changes (cons (next-single-property-change
-                             (first changes) 'display str)
-                            changes)))
-      (setq changes (reverse changes))        ;; ends with nil
-      (while (first changes)
-        (let ((pos (pop changes)))
-          (let ((display-txt (get-text-property pos 'display str)))
-            ;; increase length by either the length of text
-            ;; or length of the display property
-            (setq display-length
-                  (+ display-length
-                     (if display-txt
-                         (string-width display-txt)
-                       (- (if (first changes) (first changes) str-length)
-                          pos)))))))
-      (- display-length str-length))))
+  (let ((str-length (string-width str))
+        (display-length 0)
+        (changes '(0)))
+    ;; collect all change positions of display properties
+    (while (first changes)
+      (setq changes (cons (next-single-property-change
+                           (first changes) 'display str)
+                          changes)))
+    (setq changes (reverse changes))        ;; ends with nil
+    (while (first changes)
+      (let ((pos (pop changes)))
+        (let ((display-txt (get-text-property pos 'display str)))
+          ;; increase length by either the length of text
+          ;; or length of the display property
+          (setq display-length
+                (+ display-length
+                   (if display-txt
+                       (string-width display-txt)
+                     (- (if (first changes) (first changes) str-length)
+                        pos)))))))
+    (- display-length str-length)))
+
+(defun calc-display-offset (beg end)
+  (calc-display-offset-str (buffer-substring beg end)))
 
 (defun what-line (pos)
   "Returns the line # of the given position."
