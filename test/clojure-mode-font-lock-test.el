@@ -41,6 +41,17 @@
      (goto-char (point-min))
      ,@body))
 
+(defmacro clojurex-test-with-temp-buffer (content &rest body)
+  "Evaluate BODY in a temporary buffer with CONTENTS."
+  (declare (debug t)
+           (indent 1))
+  `(with-temp-buffer
+     (insert ,content)
+     (clojurex-mode)
+     (font-lock-fontify-buffer)
+     (goto-char (point-min))
+     ,@body))
+
 (defun clojure-get-face-at-range (start end)
   (let ((start-face (get-text-property start 'face))
         (all-faces (cl-loop for i from start to end collect (get-text-property i 'face))))
@@ -56,6 +67,16 @@ buffer."
   (if content
       (clojure-test-with-temp-buffer content
         (clojure-get-face-at-range start end))
+    (clojure-get-face-at-range start end)))
+
+(defun clojurex-test-face-at (start end &optional content)
+  "Get the face between START and END in CONTENT.
+
+If CONTENT is not given, return the face at the specified range in the current
+buffer."
+  (if content
+      (clojurex-test-with-temp-buffer content
+                                      (clojure-get-face-at-range start end))
     (clojure-get-face-at-range start end)))
 
 (defconst clojure-test-syntax-classes
@@ -172,6 +193,18 @@ POS."
     (should (eq (clojure-test-face-at 2 5) 'font-lock-keyword-face))
     (should (eq (clojure-test-face-at 7 9) 'font-lock-function-name-face))))
 
+(ert-deftest clojure-mode-syntax-table/custom-def-with-special-chars1 ()
+  :tags '(fontification syntax-table)
+  (clojure-test-with-temp-buffer "(defn* foo [x] x)"
+    (should (eq (clojure-test-face-at 2 6) 'font-lock-keyword-face))
+    (should (eq (clojure-test-face-at 8 10) 'font-lock-function-name-face))))
+
+(ert-deftest clojure-mode-syntax-table/custom-def-with-special-chars2 ()
+  :tags '(fontification syntax-table)
+  (clojure-test-with-temp-buffer "(defsomething! foo [x] x)"
+    (should (eq (clojure-test-face-at 2 14) 'font-lock-keyword-face))
+    (should (eq (clojure-test-face-at 16 18) 'font-lock-function-name-face))))
+
 (ert-deftest clojure-mode-syntax-table/lambda-params ()
   :tags '(fontification syntax-table)
   (clojure-test-with-temp-buffer "#(+ % %2 %3)"
@@ -209,10 +242,10 @@ POS."
   (should (eq (clojure-test-face-at 1 2 "\\,") 'clojure-character-face))
   (should (eq (clojure-test-face-at 1 2 "\\;") 'clojure-character-face)))
 
-(ert-deftest clojure-mode-syntax-table/cljx ()
+(ert-deftest clojurex-mode-syntax-table/cljx ()
   :tags '(fontification syntax-table)
-  (should (eq (clojure-test-face-at 1 5 "#+clj x") 'font-lock-preprocessor-face))
-  (should (eq (clojure-test-face-at 1 6 "#+cljs x") 'font-lock-preprocessor-face)))
+  (should (eq (clojurex-test-face-at 1 5 "#+clj x") 'font-lock-preprocessor-face))
+  (should (eq (clojurex-test-face-at 1 6 "#+cljs x") 'font-lock-preprocessor-face)))
 
 (ert-deftest clojure-mode-syntax-table/refer-ns ()
   :tags '(fontification syntax-table)

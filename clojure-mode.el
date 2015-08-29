@@ -380,7 +380,7 @@ Called by `imenu--generic-function'."
        (2 font-lock-type-face nil t))
       ;; Function definition (anything that starts with def and is not
       ;; listed above)
-      (,(concat "(\\(?:[a-z\.-]+/\\)?\\(def\[a-z\-\]*-?\\)"
+      (,(concat "(\\(?:[a-z\.-]+/\\)?\\(def[^ \r\n\t]*\\)"
                 ;; Function declarations
                 "\\>"
                 ;; Any whitespace
@@ -419,11 +419,10 @@ Called by `imenu--generic-function'."
             "if-let" "if-not" "if-some"
             ".." "->" "->>" "as->" "doto" "and" "or"
             "dosync" "doseq" "dotimes" "dorun" "doall"
-            "load" "import" "unimport" "ns" "in-ns" "refer"
+            "ns" "in-ns"
             "with-open" "with-local-vars" "binding"
             "with-redefs" "with-redefs-fn"
-            "gen-class" "gen-and-load-class" "gen-and-save-class"
-            "handler-case" "handle" "declare") t)
+            "declare") t)
          "\\>")
        1 font-lock-keyword-face)
       (,(concat
@@ -432,11 +431,13 @@ Called by `imenu--generic-function'."
           '("*1" "*2" "*3" "*agent*"
             "*allow-unresolved-vars*" "*assert*" "*clojure-version*"
             "*command-line-args*" "*compile-files*"
-            "*compile-path*" "*e" "*err*" "*file*" "*flush-on-newline*"
+            "*compile-path*" "*data-readers*" "*default-data-reader-fn*"
+            "*e" "*err*" "*file*" "*flush-on-newline*"
             "*in*" "*macro-meta*" "*math-context*" "*ns*" "*out*"
             "*print-dup*" "*print-length*" "*print-level*"
             "*print-meta*" "*print-readably*"
             "*read-eval*" "*source-path*"
+            "*unchecked-math*"
             "*use-context-classloader*" "*warn-on-reflection*")
           t)
          "\\>")
@@ -454,8 +455,6 @@ Called by `imenu--generic-function'."
       ("\\\\\\([[:punct:]]\\|[a-z0-9]+\\>\\)" 0 'clojure-character-face)
       ;; Constant values (keywords), including as metadata e.g. ^:static
       ("\\<^?\\(:\\(\\sw\\|\\s_\\)+\\(\\>\\|\\_>\\)\\)" 1 'clojure-keyword-face)
-      ;; cljx annotations (#+clj and #+cljs)
-      ("#\\+cljs?\\>" 0 font-lock-preprocessor-face)
       ;; Java interop highlighting
       ;; CONST SOME_CONST (optionally prefixed by /)
       ("\\(?:\\<\\|/\\)\\([A-Z]+\\|\\([A-Z]+_[A-Z1-9_]+\\)\\)\\>" 1 font-lock-constant-face)
@@ -1086,18 +1085,39 @@ nil."
 
 
 
-(defun clojure-expected-ns ()
-  "Return the namespace name that the file should have."
-  (let* ((project-dir (file-truename
-                       (or (locate-dominating-file default-directory
-                                                   "project.clj")
-                           (locate-dominating-file default-directory
-                                                   "build.boot"))))
-         (relative (substring (file-truename (buffer-file-name))
-                              (length project-dir)
-                              (- (length (file-name-extension (buffer-file-name) t))))))
-    (replace-regexp-in-string
-     "_" "-" (mapconcat 'identity (cdr (split-string relative "/")) "."))))
+(defun clojure-project-dir (&optional dir-name)
+  "Return the absolute path to the project's root directory.
+
+Use `default-directory' if DIR-NAME is nil.
+Return nil if not inside a project."
+  (let ((dir-name (or dir-name default-directory)))
+    (let ((lein-project-dir (locate-dominating-file dir-name "project.clj"))
+          (boot-project-dir (locate-dominating-file dir-name "build.boot")))
+      (when (or lein-project-dir boot-project-dir)
+        (file-truename
+         (cond ((not lein-project-dir) boot-project-dir)
+               ((not boot-project-dir) lein-project-dir)
+               (t (if (file-in-directory-p lein-project-dir boot-project-dir)
+                      lein-project-dir
+                    boot-project-dir))))))))
+
+(defun clojure-project-relative-path (path)
+  "Denormalize PATH by making it relative to the project root."
+  (file-relative-name path (clojure-project-dir)))
+
+(defun clojure-expected-ns (&optional path)
+  "Return the namespace matching PATH.
+
+PATH is expected to be an absolute file path.
+
+If PATH is nil, use the path to the file backing the current buffer."
+  (let* ((path (or path (file-truename (buffer-file-name))))
+         (relative (clojure-project-relative-path path))
+         (sans-file-type (substring relative 0 (- (length (file-name-extension path t)))))
+         (sans-file-sep (mapconcat 'identity (cdr (split-string sans-file-type "/")) "."))
+         (sans-underscores (replace-regexp-in-string "_" "-" sans-file-sep)))
+    ;; Drop prefix from ns for projects with structure src/{clj,cljs,cljc}
+    (replace-regexp-in-string "\\`clj[scx]?\\." "" sans-underscores)))
 
 (defun clojure-insert-ns-form-at-point ()
   "Insert a namespace form at point."
@@ -1190,13 +1210,49 @@ This will skip over sexps that don't represent objects, so that ^hints and
         (backward-sexp 1))
       (setq n (1- n)))))
 
+(defconst clojurescript-font-lock-keywords
+  (eval-when-compile
+    `(;; ClojureScript built-ins
+      (,(concat "(\\(?:\.*/\\)?"
+                (regexp-opt '("js-obj" "js-delete" "clj->js" "js->clj"))
+                "\\>")
+       0 font-lock-builtin-face)))
+  "Additional font-locking for `clojurescrip-mode'.")
+
+;;;###autoload
+(define-derived-mode clojurescript-mode clojure-mode "ClojureScript"
+  "Major mode for editing ClojureScript code.
+
+\\{clojurescript-mode-map}"
+  (font-lock-add-keywords nil clojurescript-font-lock-keywords))
+
+;;;###autoload
+(define-derived-mode clojurec-mode clojure-mode "ClojureC"
+  "Major mode for editing ClojureC code.
+
+\\{clojurec-mode-map}")
+
+(defconst clojurex-font-lock-keywords
+  ;; cljx annotations (#+clj and #+cljs)
+  '(("#\\+cljs?\\>" 0 font-lock-preprocessor-face))
+  "Additional font-locking for `clojurex-mode'.")
+
+;;;###autoload
+(define-derived-mode clojurex-mode clojure-mode "ClojureX"
+  "Major mode for editing ClojureX code.
+
+\\{clojurex-mode-map}"
+  (font-lock-add-keywords nil clojurex-font-lock-keywords))
 
 ;;;###autoload
 (progn
   (add-to-list 'auto-mode-alist
-               '("\\.\\(clj[csx]?\\|dtm\\|edn\\)\\'" . clojure-mode))
+               '("\\.\\(clj\\|dtm\\|edn\\)\\'" . clojure-mode))
+  (add-to-list 'auto-mode-alist '("\\.cljc\\'" . clojurec-mode))
+  (add-to-list 'auto-mode-alist '("\\.cljx\\'" . clojurex-mode))
+  (add-to-list 'auto-mode-alist '("\\.cljs\\'" . clojurescript-mode))
   ;; boot build scripts are Clojure source files
-  (add-to-list 'auto-mode-alist '("\\`build.boot\\'" . clojure-mode)))
+  (add-to-list 'auto-mode-alist '("\\(?:build\\|profile\\)\\.boot\\'" . clojure-mode)))
 
 (provide 'clojure-mode)
 
